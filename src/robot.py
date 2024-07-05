@@ -1,0 +1,69 @@
+import wpilib
+from wpilib import Preferences
+import wpilib.shuffleboard
+import wpimath
+import wpilib.drive
+import wpimath.filter
+import wpimath.controller
+import navx
+import magicbot
+
+
+import drivetrain
+from wpilib import SmartDashboard
+
+class MyRobot(magicbot.MagicRobot):
+    def createObjects(self) -> None:
+        """Robot initialization function"""
+        self.controller = wpilib.PS5Controller(0)
+        self.swerve = drivetrain.Drivetrain()
+        self.gyro = navx.AHRS.create_spi()
+        self.wigets = wpilib.shuffleboard.BuiltInWidgets
+
+        # Slew rate limiters to make joystick inputs more gentle
+        wpilib.Preferences.initDouble("slew_rate", 5)
+        self.slewRate = wpilib.Preferences.getDouble("slew_rate")
+        self.xspeedLimiter = wpimath.filter.SlewRateLimiter(self.slewRate)
+        self.yspeedLimiter = wpimath.filter.SlewRateLimiter(self.slewRate)
+        self.rotLimiter = wpimath.filter.SlewRateLimiter(self.slewRate)
+
+    def autonomousPeriodic(self) -> None:
+        self.driveWithJoystick(True)
+
+    def teleopPeriodic(self) -> None:
+        if self.slewRate != wpilib.Preferences.getDouble("slew_rate"):
+            self.slewRate = wpilib.Preferences.getDouble("slew_rate")
+            self.xspeedLimiter = wpimath.filter.SlewRateLimiter(self.slewRate)
+            self.yspeedLimiter = wpimath.filter.SlewRateLimiter(self.slewRate)
+            self.rotLimiter = wpimath.filter.SlewRateLimiter(self.slewRate)
+
+        self.driveWithJoystick(True)
+        if self.controller.getCreateButton():
+            self.swerve.reset_gyro()
+
+        SmartDashboard.putNumber("Gyro Angle", self.wigets.kGyro)
+        SmartDashboard.putNumber("Voltage", self.wigets.kVoltageView)
+
+    def driveWithJoystick(self, fieldRelative: bool) -> None:
+        # Get the x speed. We are inverting this because Xbox controllers return
+        # negative values when we push forward.
+        xSpeed = -self.xspeedLimiter.calculate(
+            wpimath.applyDeadband(self.controller.getLeftY(), 0.1)
+        ) * self.swerve.convertSpeed(Preferences.getDouble("max_speed"))
+
+        # Get the y speed or sideways/strafe speed. We are inverting this because
+        # we want a positive value when we pull to the left. Xbox controllers
+        # return positive values when you pull to the right by default.
+        ySpeed = -self.yspeedLimiter.calculate(
+            wpimath.applyDeadband(self.controller.getLeftX(), 0.1)
+        ) * self.swerve.convertSpeed(Preferences.getDouble("max_speed"))
+
+        # Get the rate of angular rotation. We are inverting this because we want a
+        # positive value when we pull to the left (remember, CCW is positive in
+        # mathematics). Xbox controllers return positive values when you pull to
+        # the right by default.
+        rot = -self.rotLimiter.calculate(
+            wpimath.applyDeadband(self.controller.getRightX(), 0.1)
+        ) * self.swerve.convertSpeed(Preferences.getDouble("max_speed"))
+
+        self.swerve.drive(xSpeed, ySpeed, rot, fieldRelative,periodSeconds=0)
